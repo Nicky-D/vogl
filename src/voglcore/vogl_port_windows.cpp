@@ -233,6 +233,18 @@ void plat_virtual_free(void* free_addr, size_t size)
 
 #endif
 
+bool isWow64()
+{
+   typedef BOOL (WINAPI *LPFN_ISWOW64PROCESS) (HANDLE, PBOOL);
+   LPFN_ISWOW64PROCESS fnIsWow64Process = (LPFN_ISWOW64PROCESS)GetProcAddress( GetModuleHandleA( "kernel32" ), "IsWow64Process");
+   BOOL isWow64 = FALSE;
+   if (NULL != fnIsWow64Process)
+     fnIsWow64Process(GetCurrentProcess(),&isWow64);
+   
+   return isWow64 == TRUE;
+}
+
+
 HMODULE _load_opengl32_dll()
 {
     char system_directory_root[_MAX_PATH];
@@ -243,8 +255,12 @@ HMODULE _load_opengl32_dll()
     #if defined(PLATFORM_64BIT)
         GetSystemDirectoryA(system_directory_root, VOGL_ARRAY_SIZE(system_directory_root));
     #else
-        VOGL_ASSUME(defined(PLATFORM_32BIT));
+	// <ND> This fails when compiling x86
+    // VOGL_ASSUME(defined(PLATFORM_32BIT));
+	if( isWow64() )
         GetSystemWow64DirectoryA(system_directory_root, VOGL_ARRAY_SIZE(system_directory_root));
+	else
+        GetSystemDirectoryA(system_directory_root, VOGL_ARRAY_SIZE(system_directory_root));
     #endif
 
     sprintf_s(module_name, VOGL_ARRAY_SIZE(module_name), "%s\\%s", system_directory_root, str_opengl32);
