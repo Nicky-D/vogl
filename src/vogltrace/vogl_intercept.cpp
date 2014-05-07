@@ -23,6 +23,8 @@
  *
  **************************************************************************/
 
+#define _GDI32_
+
 // File: vogl_intercept.cpp
 #include "vogl_trace.h"
 #include "vogl_trace_stream_types.h"
@@ -65,7 +67,9 @@
 // loki
 #include "TypeTraits.h"
 
+#ifndef NO_TURBOJPEG
 #include <turbojpeg.h>
+#endif
 
 #define VOGL_INTERCEPT_TRACE_FILE_VERSION 0x0102
 
@@ -4802,6 +4806,7 @@ static bool vogl_screen_capture_callback(uint width, uint height, uint pitch, si
 
         mz_free(pPNG_data);
     }
+#ifndef NO_TURBOJPEG
     else if (g_command_line_params().get_value_as_bool("vogl_dump_jpeg_screenshots"))
     {
         int jpeg_quality = g_command_line_params().get_value_as_int("vogl_jpeg_quality", 0, 80, 1, 100);
@@ -4831,7 +4836,7 @@ static bool vogl_screen_capture_callback(uint width, uint height, uint pitch, si
 
         tjFree(pJPEG_data);
     }
-
+#endif
     if (g_command_line_params().get_value_as_bool("vogl_dump_backbuffer_hashes") || g_command_line_params().get_value_as_bool("vogl_hash_backbuffer"))
     {
         uint64_t backbuffer_crc64;

@@ -6,7 +6,16 @@ option(VOGLTRACE_NO_PUBLIC_EXPORTS "Don't define any public GL exports in libvog
 include("${SRC_DIR}/build_options.cmake")
 
 require_pthreads()
-require_libjpegturbo()
+
+if( NOT NO_JPEGTURBO )
+  message( "Linking against libjpegturbo" )
+  require_libjpegturbo()
+else( NOT NO_JPEGTURBO )
+  message( "Not linking against libjpegturbo" )
+  set(LibJpegTurbo_LIBRARY "" )
+  add_definitions( -DNO_TURBOJPEG ) 
+endif( NOT NO_JPEGTURBO )
+
 request_backtrace()
 
 find_package(X11 REQUIRED)
