@@ -77,10 +77,7 @@ namespace vogl
     void vogl_sleep(unsigned int milliseconds)
     {
         #if defined(PLATFORM_WINDOWS)
-            struct timespec interval;
-            interval.tv_sec = milliseconds / 1000;
-            interval.tv_nsec = (milliseconds % 1000) * 1000000L;
-            pthread_delay_np(&interval);
+            ::Sleep( milliseconds );
         #else
             while (milliseconds)
             {
@@ -95,7 +92,8 @@ namespace vogl
     {
         VOGL_NOTE_UNUSED(spin_count);
 
-        pthread_mutexattr_t mta;
+#ifndef _MSC_VER
+		pthread_mutexattr_t mta;
 
         int status = pthread_mutexattr_init(&mta);
         if (status)
@@ -117,7 +115,9 @@ namespace vogl
             dynamic_string msg(cVarArg, "%s: pthread_mutex_init() failed with status %i", VOGL_METHOD_NAME, status);
             vogl_fail(msg.get_ptr(), __FILE__, __LINE__);
         }
-
+#else
+        ::InitializeCriticalSection( &m_mutex );
+#endif
 #ifdef VOGL_BUILD_DEBUG
         m_lock_count = 0;
 #endif
@@ -129,13 +129,21 @@ namespace vogl
         if (m_lock_count)
             vogl_assert("mutex::~mutex: mutex is still locked", __FILE__, __LINE__);
 #endif
+#ifndef _MSC_VER
         if (pthread_mutex_destroy(&m_mutex))
             vogl_assert("mutex::~mutex: pthread_mutex_destroy() failed", __FILE__, __LINE__);
+#else
+		::DeleteCriticalSection( &m_mutex );
+#endif
     }
 
     void mutex::lock()
     {
+#ifndef _MSC_VER
         pthread_mutex_lock(&m_mutex);
+#else
+		::EnterCriticalSection( &m_mutex ); 
+#endif
 #ifdef VOGL_BUILD_DEBUG
         m_lock_count++;
 #endif
@@ -148,8 +156,12 @@ namespace vogl
             vogl_assert("mutex::unlock: mutex is not locked", __FILE__, __LINE__);
         m_lock_count--;
 #endif
-        pthread_mutex_unlock(&m_mutex);
-    }
+#ifndef _MSC_VER
+		pthread_mutex_unlock(&m_mutex);
+#else
+		::LeaveCriticalSection( &m_mutex );
+#endif
+	}
 
     void mutex::set_spin_count(unsigned int count)
     {
@@ -164,22 +176,30 @@ namespace vogl
         VOGL_ASSERT(maximumCount >= initialCount);
         VOGL_ASSERT(maximumCount >= 1);
 
-        if (sem_init(&m_sem, 0, initialCount))
+#ifndef _MSC_VER
+		if (sem_init(&m_sem, 0, initialCount))
         {
             VOGL_FAIL("semaphore: sem_init() failed");
         }
+#else
+		m_sem = ::CreateSemaphore( 0, maximumCount, 0x7FFFFFFF, 0 );
+#endif
     }
 
     semaphore::~semaphore()
     {
+#ifndef _MSC_VER
         sem_destroy(&m_sem);
+#else
+		::CloseHandle( m_sem );
+#endif
     }
 
     void semaphore::release(uint32 releaseCount)
     {
         VOGL_ASSERT(releaseCount >= 1);
 
-        if (plat_sem_post(&m_sem, releaseCount))
+		if (plat_sem_post(&m_sem, releaseCount))
         {
             VOGL_FAIL("semaphore: sem_post() or sem_post_multiple() failed");
         }
@@ -194,7 +214,8 @@ namespace vogl
 
     bool semaphore::wait(uint32 milliseconds)
     {
-        int status;
+#ifndef _MSC_VER
+		int status;
         if (milliseconds == cUINT32_MAX)
         {
             status = sem_wait(&m_sem);
@@ -206,7 +227,6 @@ namespace vogl
             interval.tv_nsec = (milliseconds % 1000) * 1000000L;
             status = sem_timedwait(&m_sem, &interval);
         }
-
         if (status)
         {
             if (errno != ETIMEDOUT)
@@ -217,6 +237,13 @@ namespace vogl
         }
 
         return true;
+#else
+		DWORD dwTime = milliseconds;
+		if( cUINT32_MAX == dwTime )
+			dwTime = INFINITE;
+
+		return WAIT_OBJECT_0 == ::WaitForSingleObject( m_sem, dwTime );
+#endif
     }
 
     spinlock::spinlock()
@@ -225,10 +252,14 @@ namespace vogl
         m_in_lock = false;
 #endif
 
-        if (pthread_spin_init(&m_spinlock, 0))
+#ifndef _MSC_VER
+		if (pthread_spin_init(&m_spinlock, 0))
         {
             VOGL_FAIL("spinlock: pthread_spin_init() failed");
         }
+#else
+		m_spinlock = 0;
+#endif
     }
 
     spinlock::~spinlock()
@@ -237,16 +268,22 @@ namespace vogl
         VOGL_ASSERT(!m_in_lock);
 #endif
 
+#ifndef _MSC_VER
         pthread_spin_destroy(&m_spinlock);
+#endif
     }
 
     void spinlock::lock()
     {
+#ifndef _MSC_VER
         if (pthread_spin_lock(&m_spinlock))
         {
             VOGL_FAIL("spinlock: pthread_spin_lock() failed");
         }
-
+#else
+		while( 0 != vogl::atomic_compare_exchange32( &m_spinlock, 1, 0 ) )
+			;
+#endif
 #ifdef VOGL_BUILD_DEBUG
         VOGL_ASSERT(!m_in_lock);
         m_in_lock = true;
@@ -260,11 +297,15 @@ namespace vogl
         m_in_lock = false;
 #endif
 
+#ifndef _MSC_VER
         if (pthread_spin_unlock(&m_spinlock))
         {
             VOGL_FAIL("spinlock: pthread_spin_unlock() failed");
         }
-    }
+#else
+		vogl::atomic_compare_exchange32( &m_spinlock, 0, 1 );
+#endif
+	}
 
     task_pool::task_pool()
         : m_num_threads(0),
@@ -296,7 +337,22 @@ namespace vogl
         deinit();
     }
 
-    bool task_pool::init(uint num_threads)
+#ifdef _MSC_VER
+struct threadArg
+{
+	void* (_cdecl *pFunc)(void*);
+	void *pArg;
+
+};
+DWORD WINAPI threadProc(  LPVOID lpParameter  )
+{
+	threadArg *pArg = reinterpret_cast< threadArg* >( lpParameter );
+	pArg->pFunc( pArg->pArg );
+	return 0;
+}
+#endif
+
+	bool task_pool::init(uint num_threads)
     {
         VOGL_ASSERT(num_threads <= cMaxThreads);
         num_threads = math::minimum<uint>(num_threads, cMaxThreads);
@@ -308,12 +364,24 @@ namespace vogl
         m_num_threads = 0;
         while (m_num_threads < num_threads)
         {
-            int status = pthread_create(&m_threads[m_num_threads], NULL, thread_func, this);
+#ifndef _MSC_VER
+			int status = pthread_create(&m_threads[m_num_threads], NULL, thread_func, this);
             if (status)
             {
                 succeeded = false;
                 break;
             }
+#else
+			threadArg arg;
+			arg.pArg = this;
+			arg.pFunc = thread_func;
+			HANDLE thread = ::CreateThread( 0, 0, threadProc, &arg, 0, 0 );
+			if( 0 == thread )
+			{
+				succeeded = false;
+				break;
+			}
+#endif
 
             m_num_threads++;
         }
@@ -338,7 +406,11 @@ namespace vogl
             m_tasks_available.release(m_num_threads);
 
             for (uint i = 0; i < m_num_threads; i++)
-                pthread_join(m_threads[i], NULL);
+#ifndef _MSC_VER
+				pthread_join(m_threads[i], NULL);
+#else
+				::WaitForSingleObject( m_threads[i], INFINITE );
+#endif
 
             m_num_threads = 0;
 

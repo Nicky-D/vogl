@@ -217,19 +217,27 @@ void plat_virtual_free(void* free_addr, size_t size)
 #if VOGL_USE_PTHREADS_API
     int plat_sem_post(sem_t* sem, vogl::uint32 release_count)
     {
-        if (1 == release_count)
+#ifndef _MSC_VER
+		if (1 == release_count)
             return sem_post(sem);
 
         return sem_post_multiple(sem, release_count);
-    }
+#else
+		return ::ReleaseSemaphore( sem, release_count, 0 );
+#endif
+	}
 
     void plat_try_sem_post(sem_t* sem, vogl::uint32 release_count)
     {
+#ifndef _MSC_VER
         if (1 == release_count)
             sem_post(sem);
         else
             sem_post_multiple(sem, release_count);
-    }
+#else
+		::ReleaseSemaphore( sem, release_count, 0 );
+#endif
+	}
 
 #endif
 

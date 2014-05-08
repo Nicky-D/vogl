@@ -51,10 +51,26 @@ static void vogl_core_initialize()
 //----------------------------------------------------------------------------------------------------------------------
 // vogl_core_init
 //----------------------------------------------------------------------------------------------------------------------
+
+static vogl::atomic32_t s_init;
 void vogl_core_init()
 {
-    static pthread_once_t s_vogl_core_initialize = PTHREAD_ONCE_INIT;
+#ifndef _MSC_VER
+	static pthread_once_t s_vogl_core_initialize = PTHREAD_ONCE_INIT;
     pthread_once(&s_vogl_core_initialize, vogl_core_initialize);
+#else
+	vogl::atomic32_t val = vogl::atomic_compare_exchange32( &s_init, 1, 0 );
+	if( 0 == val )
+	{
+		vogl_core_initialize();
+		vogl::atomic_increment32( &s_init );
+	}
+	else if( 1 == val )
+	{
+		while( 1 == vogl::atomic_compare_exchange32( &s_init, 1, 1 ) )
+			;
+	}
+#endif
 }
 
 // TODO: Move or delete these straggler funcs, they are artifacts from when voglcore was crnlib

@@ -37,8 +37,18 @@
 #error No atomic operations defined in vogl_platform.h!
 #endif
 
+#ifndef _MSC_VER
 #include <pthread.h>
 #include <semaphore.h>
+#else
+#include <windows.h>
+#include "vogl_atomics.h"
+typedef CRITICAL_SECTION pthread_mutex_t;
+typedef vogl::atomic32_t pthread_spinlock_t;
+typedef HANDLE sem_t;
+typedef HANDLE pthread_t;
+typedef DWORD pid_t;
+#endif
 
 #if defined(PLATFORM_LINUX)
     #include <unistd.h>

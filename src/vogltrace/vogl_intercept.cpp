@@ -100,8 +100,14 @@ bool get_dimensions_from_dc(unsigned int* out_width, unsigned int* out_height, H
 // Globals
 //----------------------------------------------------------------------------------------------------------------------
 bool g_vogl_has_been_initialized = false;
+
+#ifndef _MSC_VER
 static pthread_once_t g_vogl_init_once_control = PTHREAD_ONCE_INIT;
 static pthread_key_t g_vogl_thread_local_data;
+#else
+__declspec(thread) static vogl_thread_local_data *g_vogl_thread_local_data;
+#endif
+
 static cfile_stream *g_vogl_pLog_stream;
 static vogl_exception_callback_t g_vogl_pPrev_exception_callback;
 static GLuint g_dummy_program;
@@ -442,7 +448,11 @@ public:
 //----------------------------------------------------------------------------------------------------------------------
 static VOGL_FORCE_INLINE vogl_thread_local_data *vogl_get_thread_local_data()
 {
-    return static_cast<vogl_thread_local_data *>(pthread_getspecific(g_vogl_thread_local_data));
+#ifndef _MSC_VER
+	return static_cast<vogl_thread_local_data *>(pthread_getspecific(g_vogl_thread_local_data));
+#else
+	return g_vogl_thread_local_data;
+#endif
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -455,7 +465,11 @@ static VOGL_FORCE_INLINE vogl_thread_local_data *vogl_get_or_create_thread_local
     {
         pTLS_data = vogl_new(vogl_thread_local_data);
 
+#ifndef _MSC_VER
         pthread_setspecific(g_vogl_thread_local_data, pTLS_data);
+#else
+		g_vogl_thread_local_data = pTLS_data;
+#endif
     }
 
     return pTLS_data;
@@ -468,7 +482,11 @@ static void vogl_thread_local_data_destructor(void *pValue)
 {
     vogl_delete(static_cast<vogl_thread_local_data *>(pValue));
 
+#ifndef _MSC_VER
     pthread_setspecific(g_vogl_thread_local_data, NULL);
+#else
+	g_vogl_thread_local_data = NULL;
+#endif
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -476,12 +494,16 @@ static void vogl_thread_local_data_destructor(void *pValue)
 //----------------------------------------------------------------------------------------------------------------------
 static void vogl_init_thread_local_data()
 {
+#ifndef _MSC_VER
     int rc = pthread_key_create(&g_vogl_thread_local_data, vogl_thread_local_data_destructor);
     if (rc)
     {
         vogl_error_printf("%s: pthread_key_create failed!\n", VOGL_FUNCTION_NAME);
         exit(EXIT_FAILURE);
     }
+#else
+	vogl_thread_local_data_destructor( g_vogl_thread_local_data );
+#endif
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -730,12 +752,27 @@ static void vogl_deinit_callback()
     vogl_dump_statistics();
 }
 
+vogl::atomic32_t s_vogl_deinit_once_control;
 void vogl_deinit()
 {
     VOGL_FUNC_TRACER // I'm not sure this is a good idea here.
 
+#ifndef _MSC_VER
     static pthread_once_t s_vogl_deinit_once_control = PTHREAD_ONCE_INIT;
     pthread_once(&s_vogl_deinit_once_control, vogl_deinit_callback);
+#else
+	vogl::atomic32_t val = vogl::atomic_compare_exchange32( &s_vogl_deinit_once_control, 1, 0 );
+	if( 0 == val )
+	{
+		vogl_deinit_callback();
+		vogl::atomic_increment32( &s_vogl_deinit_once_control );
+	}
+	else if( 1 == val )
+	{
+		while( 1 == vogl::atomic_compare_exchange32( &s_vogl_deinit_once_control, 1, 1 ) )
+			;
+	}
+#endif
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -980,9 +1017,24 @@ static inline void vogl_check_context(gl_entrypoint_id_t id, vogl_context *pCont
 // vogl_entrypoint_prolog
 // This function gets called on every GL call - be careful what you do here!
 //----------------------------------------------------------------------------------------------------------------------
+static vogl::atomic32_t s_init;
 static inline vogl_thread_local_data *vogl_entrypoint_prolog(gl_entrypoint_id_t entrypoint_id)
 {
+#ifndef _MSC_VER
     pthread_once(&g_vogl_init_once_control, vogl_global_init);
+#else
+	vogl::atomic32_t val = vogl::atomic_compare_exchange32( &s_init, 1, 0 );
+	if( 0 == val )
+	{
+		vogl_global_init();
+		vogl::atomic_increment32( &s_init );
+	}
+	else if( 1 == val )
+	{
+		while( 1 == vogl::atomic_compare_exchange32( &s_init, 1, 1 ) )
+			;
+	}
+#endif
 
     vogl_thread_local_data *pTLS_data = vogl_get_or_create_thread_local_data();
 

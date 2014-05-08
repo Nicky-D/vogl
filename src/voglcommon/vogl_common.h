@@ -41,7 +41,9 @@
     #include <dlfcn.h>
 #endif
 
-#include <pthread.h>
+#ifdef HAS_PTHREAD
+  #include <pthread.h>
+#endif
 
 #if PLATFORM_POSIX
     #include <X11/Xlib.h>

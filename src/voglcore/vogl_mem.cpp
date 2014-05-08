@@ -143,7 +143,11 @@ static void init_heap()
     if (g_pHeap)
         return;
 
-    pthread_mutex_init(&g_mutex, NULL);
+#ifndef _MSC_VER
+	pthread_mutex_init(&g_mutex, NULL);
+#else
+	::InitializeCriticalSection( &g_mutex );
+#endif
 
     stbm_heap_config config;
     memset(&config, 0, sizeof(config));
@@ -161,7 +165,11 @@ static void lock_heap()
 {
     VOGL_ASSERT(g_pHeap);
 
+#ifndef _MSC_VER
     pthread_mutex_lock(&g_mutex);
+#else
+	::EnterCriticalSection( &g_mutex );
+#endif
 
     VOGL_ASSERT(!g_allocating_flag);
     g_allocating_flag = true;
@@ -172,7 +180,11 @@ static void unlock_heap()
     g_allocating_flag = false;
 
     VOGL_ASSERT(g_pHeap);
+#ifndef _MSC_VER
     pthread_mutex_unlock(&g_mutex);
+#else
+	::LeaveCriticalSection( &g_mutex );
+#endif
 }
 
 static void *malloc_block(size_t size, const char *pFile_line)
