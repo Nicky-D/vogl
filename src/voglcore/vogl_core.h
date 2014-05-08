@@ -34,7 +34,12 @@
 // Will return a string with the function, filename, line number. Like this:
 //   main():voglbench.cpp:675
 // Usually used in error printf functions, etc.
+
+#ifndef _MSC_VER
 #define VOGL_FUNCTION_INFO_CSTR vogl::vogl_function_info(__FILE__, __LINE__, __func__).c_str()
+#else
+#define VOGL_FUNCTION_INFO_CSTR vogl::vogl_function_info(__FILE__, __LINE__, __FUNCTION__).c_str()
+#endif
 
 #include <stdlib.h>
 #include <stdio.h>
