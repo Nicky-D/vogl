@@ -9012,16 +9012,32 @@ static void vogl_check_entrypoints()
 //----------------------------------------------------------------------------------------------------------------------
 // Declare exported gl/glx functions (each exported func immediately calls one of the internal vogl_* functions)
 //----------------------------------------------------------------------------------------------------------------------
+#ifdef _MSC_VER
 #define DEF_PROTO_EXPORTED(ret, name, args, params) \
-    VOGL_API_EXPORT ret name args                    \
+    VOGL_API_EXPORT ret WINAPI name args                    \
+    {                                               \
+        __pragma( comment(linker, "/EXPORT:"__FUNCTION__"="__FUNCDNAME__) ); \
+        return VOGL_GLUER(vogl_, name) params;     \
+    }
+#define DEF_PROTO_EXPORTED_VOID(ret, name, args, params) \
+    VOGL_API_EXPORT ret WINAPI name args                         \
+    {                                                    \
+        __pragma( comment(linker, "/EXPORT:"__FUNCTION__"="__FUNCDNAME__) ); \
+        VOGL_GLUER(vogl_, name) params;                 \
+    }
+#else
+#define DEF_PROTO_EXPORTED(ret, name, args, params) \
+    VOGL_API_EXPORT ret WINAPI name args                    \
     {                                               \
         return VOGL_GLUER(vogl_, name) params;     \
     }
 #define DEF_PROTO_EXPORTED_VOID(ret, name, args, params) \
-    VOGL_API_EXPORT ret name args                         \
+    VOGL_API_EXPORT ret WINAPI name args                         \
     {                                                    \
         VOGL_GLUER(vogl_, name) params;                 \
     }
+#endif
+
 #define DEF_PROTO_INTERNAL(ret, name, args, params)
 #define DEF_PROTO_INTERNAL_VOID(ret, name, args, params)
 #define DEF_FUNCTION_BEGIN(exported, category, ret, ret_type_enum, num_params, name, args, params) exported(ret, name, args, params)
@@ -9043,6 +9059,8 @@ static void vogl_check_entrypoints()
 #include "gl_glx_wgl_array_size_macros.inc"
 #include "gl_glx_wgl_func_defs.inc"
 #endif
+
+#pragma comment(linker, "/EXPORT:glAccum=_glAccum@8")
 
 //----------------------------------------------------------------------------------------------------------------------
 // Define our exported gliGetProcAddressRAD function
