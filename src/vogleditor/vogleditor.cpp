@@ -40,11 +40,13 @@
 
 #include "vogleditor_output.h"
 #include "vogleditor_settings.h"
-#include "vogleditor_statetreetextureitem.h"
 #include "vogleditor_statetreearbprogramitem.h"
 #include "vogleditor_statetreeprogramitem.h"
+#include "vogleditor_statetreebufferitem.h"
 #include "vogleditor_statetreeshaderitem.h"
 #include "vogleditor_statetreeframebufferitem.h"
+#include "vogleditor_statetreetextureitem.h"
+#include "vogleditor_qbufferexplorer.h"
 #include "vogleditor_qstatetreemodel.h"
 #include "vogleditor_qtrimdialog.h"
 #include "vogleditor_qframebufferexplorer.h"
@@ -95,14 +97,14 @@ static bool load_gl()
    g_actual_libgl_module_handle = dlopen("libGL.so.1", RTLD_LAZY);
    if (!g_actual_libgl_module_handle)
    {
-      vogl_error_printf("%s: Failed loading libGL.so.1!\n", VOGL_FUNCTION_NAME);
+      vogl_error_printf("%s: Failed loading libGL.so.1!\n", VOGL_FUNCTION_INFO_CSTR);
       return false;
    }
 
    GL_ENTRYPOINT(glXGetProcAddress) = reinterpret_cast<glXGetProcAddress_func_ptr_t>(dlsym(g_actual_libgl_module_handle, "glXGetProcAddress"));
    if (!GL_ENTRYPOINT(glXGetProcAddress))
    {
-      vogl_error_printf("%s: Failed getting address of glXGetProcAddress() from libGL.so.1!\n", VOGL_FUNCTION_NAME);
+      vogl_error_printf("%s: Failed getting address of glXGetProcAddress() from libGL.so.1!\n", VOGL_FUNCTION_INFO_CSTR);
       return false;
    }
 
@@ -117,12 +119,14 @@ VoglEditor::VoglEditor(QWidget *parent) :
    m_pRenderbufferExplorer(NULL),
    m_pProgramExplorer(NULL),
    m_pShaderExplorer(NULL),
+   m_pBufferExplorer(NULL),
    m_timeline(NULL),
    m_pFramebufferTab_layout(NULL),
    m_pTextureTab_layout(NULL),
    m_pRenderbufferTab_layout(NULL),
    m_pProgramTab_layout(NULL),
    m_pShaderTab_layout(NULL),
+   m_pBufferTab_layout(NULL),
    m_currentSnapshot(NULL),
    m_pCurrentCallTreeItem(NULL),
    m_pVoglReplayProcess(new QProcess()),
@@ -191,6 +195,12 @@ VoglEditor::VoglEditor(QWidget *parent) :
    m_pShaderExplorer = new vogleditor_QShaderExplorer(ui->shaderTab);
    m_pShaderTab_layout->addWidget(m_pShaderExplorer, 0, 0);
    ui->shaderTab->setLayout(m_pShaderTab_layout);
+
+   // setup buffer tab
+   m_pBufferTab_layout = new QGridLayout();
+   m_pBufferExplorer = new vogleditor_QBufferExplorer(ui->bufferTab);
+   m_pBufferTab_layout->addWidget(m_pBufferExplorer, 0, 0);
+   ui->bufferTab->setLayout(m_pBufferTab_layout);
 
    // setup timeline
    m_timeline = new vogleditor_QTimelineView();
@@ -273,6 +283,12 @@ VoglEditor::~VoglEditor()
         m_pShaderExplorer = NULL;
     }
 
+    if (m_pBufferExplorer != NULL)
+    {
+        delete m_pBufferExplorer;
+        m_pBufferExplorer = NULL;
+    }
+
     if (m_pPlayButton != NULL)
     {
         delete m_pPlayButton;
@@ -319,6 +335,12 @@ VoglEditor::~VoglEditor()
     {
         delete m_pShaderTab_layout;
         m_pShaderTab_layout = NULL;
+    }
+
+    if (m_pBufferTab_layout != NULL)
+    {
+        delete m_pBufferTab_layout;
+        m_pBufferTab_layout = NULL;
     }
 
     if (m_pStateTreeModel != NULL)
@@ -960,13 +982,13 @@ vogl_gl_state_snapshot* VoglEditor::read_state_snapshot_from_trace(vogl_trace_fi
 
       if ((read_status != vogl_trace_file_reader::cOK) && (read_status != vogl_trace_file_reader::cEOF))
       {
-         vogl_error_printf("%s: Failed reading from keyframe trace file!\n", VOGL_FUNCTION_NAME);
+         vogl_error_printf("%s: Failed reading from keyframe trace file!\n", VOGL_FUNCTION_INFO_CSTR);
          return NULL;
       }
 
       if ((read_status == vogl_trace_file_reader::cEOF) || (pTrace_reader->get_packet_type() == cTSPTEOF))
       {
-         vogl_error_printf("%s: Failed finding state snapshot in keyframe file!\n", VOGL_FUNCTION_NAME);
+         vogl_error_printf("%s: Failed finding state snapshot in keyframe file!\n", VOGL_FUNCTION_INFO_CSTR);
          return NULL;
       }
 
@@ -975,7 +997,7 @@ vogl_gl_state_snapshot* VoglEditor::read_state_snapshot_from_trace(vogl_trace_fi
 
       if (!keyframe_trace_packet.deserialize(pTrace_reader->get_packet_buf().get_ptr(), pTrace_reader->get_packet_buf().size(), false))
       {
-         vogl_error_printf("%s: Failed parsing GL entrypoint packet in keyframe file\n", VOGL_FUNCTION_NAME);
+         vogl_error_printf("%s: Failed parsing GL entrypoint packet in keyframe file\n", VOGL_FUNCTION_INFO_CSTR);
          return NULL;
       }
 
@@ -1005,7 +1027,7 @@ vogl_gl_state_snapshot* VoglEditor::read_state_snapshot_from_trace(vogl_trace_fi
                   dynamic_string id(kvm.get_string("binary_id"));
                   if (id.is_empty())
                   {
-                     vogl_error_printf("%s: Missing binary_id field in glInternalTraceCommandRAD key_valye_map command type: \"%s\"\n", VOGL_FUNCTION_NAME, cmd_type.get_ptr());
+                     vogl_error_printf("%s: Missing binary_id field in glInternalTraceCommandRAD key_valye_map command type: \"%s\"\n", VOGL_FUNCTION_INFO_CSTR, cmd_type.get_ptr());
                      return NULL;
                   }
 
@@ -1014,19 +1036,19 @@ vogl_gl_state_snapshot* VoglEditor::read_state_snapshot_from_trace(vogl_trace_fi
                      timed_scope ts("get_multi_blob_manager().get");
                      if (!pTrace_reader->get_multi_blob_manager().get(id, snapshot_data) || (snapshot_data.is_empty()))
                      {
-                        vogl_error_printf("%s: Failed reading snapshot blob data \"%s\"!\n", VOGL_FUNCTION_NAME, id.get_ptr());
+                        vogl_error_printf("%s: Failed reading snapshot blob data \"%s\"!\n", VOGL_FUNCTION_INFO_CSTR, id.get_ptr());
                         return NULL;
                      }
                   }
 
-                  vogl_message_printf("%s: Deserializing state snapshot \"%s\", %u bytes\n", VOGL_FUNCTION_NAME, id.get_ptr(), snapshot_data.size());
+                  vogl_message_printf("%s: Deserializing state snapshot \"%s\", %u bytes\n", VOGL_FUNCTION_INFO_CSTR, id.get_ptr(), snapshot_data.size());
 
                   json_document doc;
                   {
                      timed_scope ts("doc.binary_deserialize");
                      if (!doc.binary_deserialize(snapshot_data) || (!doc.get_root()))
                      {
-                        vogl_error_printf("%s: Failed deserializing JSON snapshot blob data \"%s\"!\n", VOGL_FUNCTION_NAME, id.get_ptr());
+                        vogl_error_printf("%s: Failed deserializing JSON snapshot blob data \"%s\"!\n", VOGL_FUNCTION_INFO_CSTR, id.get_ptr());
                         return NULL;
                      }
                   }
@@ -1039,7 +1061,7 @@ vogl_gl_state_snapshot* VoglEditor::read_state_snapshot_from_trace(vogl_trace_fi
                      vogl_delete(pSnapshot);
                      pSnapshot = NULL;
 
-                     vogl_error_printf("%s: Failed deserializing snapshot blob data \"%s\"!\n", VOGL_FUNCTION_NAME, id.get_ptr());
+                     vogl_error_printf("%s: Failed deserializing snapshot blob data \"%s\"!\n", VOGL_FUNCTION_INFO_CSTR, id.get_ptr());
                      return NULL;
                   }
 
@@ -1079,10 +1101,6 @@ bool VoglEditor::open_trace_file(dynamic_string filename)
       vogleditor_output_error("Unable to open trace file.");
       this->setCursor(origCursor);
       return false;
-   }
-   else
-   {
-       vogleditor_output_message("... success!");
    }
 
    if (tmpReader->get_max_frame_index() > g_settings.trim_large_trace_prompt_size())
@@ -1127,7 +1145,23 @@ bool VoglEditor::open_trace_file(dynamic_string filename)
    vogl_ctypes trace_ctypes;
    trace_ctypes.init(m_pTraceReader->get_sof_packet().m_pointer_sizes);
 
-   m_pApiCallTreeModel = new vogleditor_QApiCallTreeModel(m_pTraceReader);
+   m_pApiCallTreeModel = new vogleditor_QApiCallTreeModel();
+   if (m_pApiCallTreeModel == NULL)
+   {
+       vogleditor_output_error("Out of memory.");
+       close_trace_file();
+       this->setCursor(origCursor);
+       return false;
+   }
+
+   if (!m_pApiCallTreeModel->init(m_pTraceReader))
+   {
+      vogleditor_output_error("The API calls within the trace could not be parsed properly.");
+      close_trace_file();
+      this->setCursor(origCursor);
+      return false;
+   }
+
    ui->treeView->setModel(m_pApiCallTreeModel);
 
    if (ui->treeView->selectionModel() != NULL)
@@ -1218,10 +1252,6 @@ bool VoglEditor::open_trace_file(dynamic_string filename)
         displayMachineInfo();
    }
 
-   m_openFilename = filename.c_str();
-
-   setWindowTitle(m_openFilename + " - " + g_PROJECT_NAME);
-
    ui->tabWidget->setCurrentWidget(ui->framebufferTab);
 
    // update toolbar
@@ -1232,6 +1262,10 @@ bool VoglEditor::open_trace_file(dynamic_string filename)
    m_pTimelineModel = new vogleditor_apiCallTimelineModel(m_pApiCallTreeModel->root());
    m_timeline->setModel(m_pTimelineModel);
    m_timeline->repaint();
+
+   m_openFilename = filename.c_str();
+   setWindowTitle(m_openFilename + " - " + g_PROJECT_NAME);
+   vogleditor_output_message("...opened successfully!");
 
    this->setCursor(origCursor);
    return true;
@@ -1408,6 +1442,7 @@ void VoglEditor::reset_snapshot_ui()
     m_pProgramArbExplorer->clear();
     m_pProgramExplorer->clear();
     m_pShaderExplorer->clear();
+    m_pBufferExplorer->clear();
     ui->contextComboBox->clear();
     ui->contextComboBox->setEnabled(false);
 
@@ -1416,6 +1451,7 @@ void VoglEditor::reset_snapshot_ui()
     QWidget* pCurrentTab = ui->tabWidget->currentWidget();
 
     VOGLEDITOR_DISABLE_STATE_TAB(ui->stateTab);
+    VOGLEDITOR_DISABLE_STATE_TAB(ui->bufferTab);
     VOGLEDITOR_DISABLE_STATE_TAB(ui->framebufferTab);
     VOGLEDITOR_DISABLE_STATE_TAB(ui->programArbTab);
     VOGLEDITOR_DISABLE_STATE_TAB(ui->programTab);
@@ -1687,6 +1723,12 @@ void VoglEditor::update_ui_for_context(vogl_context_snapshot* pContext, vogledit
         }
     }
     if (shaderCount > 0) { VOGLEDITOR_ENABLE_STATE_TAB(ui->shaderTab); }
+
+    // buffers
+    m_pBufferExplorer->clear();
+    uint bufferCount = m_pBufferExplorer->set_buffer_objects(sharingContexts);
+    if (bufferCount > 0) { VOGLEDITOR_ENABLE_STATE_TAB(ui->bufferTab); }
+
 }
 
 void VoglEditor::on_stateTreeView_clicked(const QModelIndex &index)
@@ -1759,6 +1801,18 @@ void VoglEditor::on_stateTreeView_clicked(const QModelIndex &index)
 
       break;
    }
+   case vogleditor_stateTreeItem::cBUFFER:
+   {
+      vogleditor_stateTreeBufferItem* pBufferItem = static_cast<vogleditor_stateTreeBufferItem*>(pStateItem);
+      if (pBufferItem == NULL)
+      {
+         break;
+      }
+
+      displayBuffer(pBufferItem->get_buffer_state()->get_snapshot_handle(), true);
+
+      break;
+   }
    case vogleditor_stateTreeItem::cDEFAULT:
    {
       return;
@@ -1774,6 +1828,20 @@ bool VoglEditor::displayShader(GLuint64 shaderHandle, bool bBringTabToFront)
         if (bBringTabToFront)
         {
             ui->tabWidget->setCurrentWidget(ui->shaderTab);
+        }
+    }
+
+    return bDisplayed;
+}
+
+bool VoglEditor::displayBuffer(GLuint64 bufferHandle, bool bBringTabToFront)
+{
+    bool bDisplayed = false;
+    if (m_pBufferExplorer->set_active_buffer(bufferHandle))
+    {
+        if (bBringTabToFront)
+        {
+            ui->tabWidget->setCurrentWidget(ui->bufferTab);
         }
     }
 
