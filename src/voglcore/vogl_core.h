@@ -31,12 +31,6 @@
 
 #include "vogl_build_options.h"
 
-#if defined(COMPILER_MSVC)
-    #define VOGL_METHOD_NAME __FUNCSIG__
-#else
-    #define VOGL_METHOD_NAME __PRETTY_FUNCTION__
-#endif
-
 // Will return a string with the function, filename, line number. Like this:
 //   main():voglbench.cpp:675
 // Usually used in error printf functions, etc.
