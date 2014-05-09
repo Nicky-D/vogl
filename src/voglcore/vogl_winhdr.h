@@ -45,6 +45,25 @@
 #define NOGDI
 #include "windows.h"
 
+typedef struct _WGLSWAP
+{
+    HDC hdc;
+    UINT uiFlags;
+} WGLSWAP, *PWGLSWAP, FAR *LPWGLSWAP;
+
+typedef struct _POINTFLOAT {
+    FLOAT   x;
+    FLOAT   y;
+} POINTFLOAT, *PPOINTFLOAT;
+
+typedef struct _GLYPHMETRICSFLOAT {
+    FLOAT       gmfBlackBoxX;
+    FLOAT       gmfBlackBoxY;
+    POINTFLOAT  gmfptGlyphOrigin;
+    FLOAT       gmfCellIncX;
+    FLOAT       gmfCellIncY;
+} GLYPHMETRICSFLOAT, *PGLYPHMETRICSFLOAT, FAR *LPGLYPHMETRICSFLOAT;
+
 typedef struct tagPIXELFORMATDESCRIPTOR
 {
     WORD  nSize;
